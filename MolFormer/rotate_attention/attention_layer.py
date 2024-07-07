@@ -19,7 +19,7 @@ class RotateAttentionLayer(AttentionLayer):
         super(RotateAttentionLayer, self).__init__(attention,d_model, n_heads, d_keys=d_keys,
                  d_values=d_values, event_dispatcher=event_dispatcher)
         self.n_heads = n_heads
-        self.attention = attention
+        #self.attention = attention
         self.d_keys = d_keys
         self.d_values = d_values
         self.d_model = d_model

@@ -35,7 +35,7 @@ def get_dataset(data_root, filename, dataset_len, aug, measure_name,canonical,me
 
 
 class PropertyPredictionDataset(torch.utils.data.Dataset):
-    def __init__(self, df, measure_name, aug=True,canonical=True,mean=None,std=None):
+    def __init__(self, df, measure_name, aug=0,canonical=True,mean=None,std=None):
         df = df[['smiles'] + measure_name]
         self.measure_name = measure_name
         df = df.dropna(subset=['smiles'])
@@ -50,12 +50,11 @@ class PropertyPredictionDataset(torch.utils.data.Dataset):
                         df.loc[len(df)] = [aug_smile]+label
                     except:
                         continue
-        df = df.sample(frac=1)
+        #df = df.sample(frac=1)
         df['isomeric_smiles'] = df['smiles'].apply(lambda smi: normalize_smiles(smi, canonical=canonical, isomeric=False))
         df_good = df.dropna(subset=['isomeric_smiles'])  # TODO - Check why some rows are na
 
         len_new = len(df_good)
-        # print('Dropped {} invalid smiles'.format(len(df) - len_new))
         print('aug_after_len:',len_new)
         self.df = df_good
         self.df = self.df.reset_index(drop=True)
@@ -147,15 +146,13 @@ class PropertyPredictionDataModule(pl.LightningDataModule):
         )
 
         self.train_ds = train_ds
-        self.test_ds = test_ds
+        #self.test_ds = [val_ds] + [test_ds]
         self.val_ds = [val_ds] + [test_ds]
 
     def collate(self, batch):
         tokens = self.tokenizer.batch_encode_plus([smile[0] for smile in batch], padding=True, add_special_tokens=True)
         return torch.tensor(tokens['input_ids']), torch.tensor(tokens['attention_mask']), torch.tensor(
             [smile[1] for smile in batch]), torch.tensor([smile[2] for smile in batch])
-
-    #
 
     def val_dataloader(self):
         return DataLoader(
@@ -176,10 +173,49 @@ class PropertyPredictionDataModule(pl.LightningDataModule):
         )
 
     def test_dataloader(self):
+        return self.val_dataloader()
+
+
+
+
+class KFDataModule(pl.LightningDataModule):
+    def __init__(self, hparams, tokenizer,train_ds,val_ds):
+        super(KFDataModule, self).__init__()
+        if type(hparams) is dict:
+            hparams = Namespace(**hparams)
+        #self.save_hyperparameters(hparams)
+        self.tokenizer = tokenizer
+        self.dataset_name = hparams.dataset_name
+        self.train = train_ds
+        self.val = val_ds
+        self.train_ds = None
+        self.val_ds = None
+        #self.save_hyperparameters(hparams)
+
+    def collate(self, batch):
+        tokens = self.tokenizer.batch_encode_plus([smile[0] for smile in batch], padding=True, add_special_tokens=True)
+        return torch.tensor(tokens['input_ids']), torch.tensor(tokens['attention_mask']), torch.tensor(
+            [smile[1] for smile in batch]), torch.tensor([smile[2] for smile in batch])
+    def prepare_data(self) -> None:
+        self.train_ds = PropertyPredictionDataset(self.train, ['Y'])
+        self.val_ds = PropertyPredictionDataset(self.val,['Y'])
+
+    def val_dataloader(self):
         return DataLoader(
-            self.test_ds,
-            batch_size=self.hparams.val_batch_size,
-            num_workers=self.hparams.num_workers,
+            self.val_ds,
+            batch_size=32,
+            num_workers=0,
             shuffle=False,
+            collate_fn=self.collate,
+        )
+    def test_dataloader(self):
+        return self.val_dataloader()
+
+    def train_dataloader(self):
+        return DataLoader(
+            self.train_ds,
+            batch_size=32,
+            num_workers=0,
+            shuffle=True,
             collate_fn=self.collate,
         )
